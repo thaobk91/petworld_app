@@ -12,6 +12,9 @@ class PetWorldApp extends ConsumerWidget {
       title: 'PetWorld',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
+      // Giao diện tối đang tắt: app luôn sáng, kể cả khi điện thoại để chế
+      // độ tối. Đổi thành ThemeMode.system để bật lại.
+      themeMode: ThemeMode.light,
       routerConfig: ref.watch(appRouterProvider),
     );
   }

@@ -14,7 +14,8 @@ Hướng dẫn cho Claude khi làm việc trong dự án này.
 - Flutter 3.47.9, Dart 3.13.7. Nền tảng: Android và iOS (build iOS phải có macOS + Xcode).
 - State management và DI: `flutter_riverpod` 3, không dùng code generation, không dùng get_it.
 - Điều hướng: `go_router`.
-- Bản đồ: `flutter_map` + `latlong2`, tile OSM France style HOT, có lớp lọc màu cho dịu (`shared/widgets/map_layers.dart`).
+- Bản đồ: `maplibre_gl` (MapLibre Native), tile vector OpenFreeMap (dữ liệu OSM, schema OpenMapTiles). Style tự viết trong Dart (`shared/map/pet_map_style.dart`), có 2 kiểu: Mô hình (3D, ngày/đêm) và Thường (2D).
+- Yêu cầu nền tảng do MapLibre: Android API 24+, build Android cần JDK 21, iOS 15.5+.
 - Vị trí: `geolocator`. Ảnh: `image_picker`, file lưu trong thư mục documents (`path_provider`).
 - Lưu trữ: `shared_preferences` (dữ liệu JSON). ID tạo bằng `uuid`.
 - Số điện thoại: `phone_numbers_parser` (kiểm tra theo từng quốc gia, đổi sang E.164). Băm mật khẩu: `crypto` (PBKDF2 tự viết theo RFC 8018, có test với vector chuẩn).
@@ -47,7 +48,9 @@ lib/
 │   ├── storage/           # sharedPreferencesProvider, PhotoStorage
 │   ├── theme/
 │   └── utils/             # formatDate, formatAge, foldForSearch (tìm không dấu)
-├── shared/widgets/        # widget dùng ở nhiều tính năng: lớp bản đồ OSM, pickPhoto, WelcomeHero, NoteCard
+├── shared/
+│   ├── map/               # PetMap (bản đồ dùng chung), style 2 kiểu, ảnh ghim nhà, lựa chọn kiểu bản đồ
+│   └── widgets/           # widget dùng ở nhiều tính năng: pickPhoto, WelcomeHero, NoteCard
 └── features/
     ├── account/           # đăng ký tài khoản: số điện thoại theo quốc gia, mật khẩu
     ├── house/             # đăng ký nhà, LocationFuzzer, màn hình "Nhà của tôi"
@@ -80,11 +83,12 @@ test/                      # chia thư mục giống lib/
 
 ## Quy ước giao diện
 
-- Phong cách ấm áp, dễ thương. Màu gốc cam san hô `AppTheme.seed`, scheme `DynamicSchemeVariant.fidelity`.
-- Nút chính, FAB, ghim nhà của mình: dùng `primaryContainer` / `onPrimaryContainer`. Không dùng `primary` làm nền lớn, vì với scheme này nó ra màu gỉ sắt.
-- Nền đầu trang: `AppTheme.softGradient`. Không trộn cam với xanh ngọc, ở giữa sẽ ra màu nâu xám.
+- Phong cách tươi, dễ thương. Màu gốc xanh lá cây `#5DBB63` (`AppPalette.current` = `AppPalette.leafGreen` trong `core/theme/app_theme.dart`), scheme `DynamicSchemeVariant.fidelity`. `AppPalette.coral` (cam san hô) và `AppPalette.deepBlue` (xanh dương đậm) để sẵn nhưng đang tắt; đổi màu app thì đổi `AppPalette.current`.
+- **App luôn dùng giao diện sáng** (`themeMode: ThemeMode.light` trong `PetWorldApp`), kể cả khi điện thoại để chế độ tối. `AppTheme.dark()` giữ lại nhưng tắt; đổi sang `ThemeMode.system` để bật lại. Có test trong `test/app_test.dart`.
+- Nút chính, FAB, ghim nhà của mình: dùng `primaryContainer` / `onPrimaryContainer`. Không dùng `primary` làm nền lớn, vì với scheme này nó đậm hơn hẳn (xanh rừng `#006E22`), nhìn nặng.
+- Nền đầu trang: `AppTheme.softGradient` (`primaryContainer` sang `secondaryContainer`). Không trộn hai màu đối nhau (vd cam với xanh ngọc), ở giữa ra màu xám bẩn.
 - Mỗi loài thú cưng có emoji và màu pastel riêng (`pet_labels.dart`). Thú cưng chưa có ảnh thì hiện emoji trên nền pastel đó.
-- Widget dùng chung: `EmptyState`, `InfoPill`, `HousePin`, `WelcomeHero` (đầu trang màn hình chào mừng), `NoteCard` (ô ghi chú có emoji) trong `shared/widgets/`.
+- Widget dùng chung: `EmptyState`, `InfoPill`, `WelcomeHero` (đầu trang màn hình chào mừng), `NoteCard` (ô ghi chú có emoji) trong `shared/widgets/`.
 - Ô nhập kiểu filled bo tròn (`UnderlineInputBorder` không viền). Không dùng `OutlineInputBorder`, vì nhãn nổi sẽ rơi ra ngoài ô.
 - Chữ trong `Row` phải bọc `Expanded`/`Flexible` để không tràn khi cỡ chữ hệ thống lớn. Widget test chạy ở 360×800 để bắt lỗi tràn.
 - Có 2 FAB trong cùng route (2 tab của `IndexedStack`), nên FAB của bản đồ đặt `heroTag: null`.
@@ -98,11 +102,22 @@ test/                      # chia thư mục giống lib/
 - Widget test phải override `passwordHasherProvider` bằng bản giả. `Isolate.run` không xong được trong thời gian giả của `testWidgets`, test sẽ treo.
 - Tên quốc gia tiếng Việt nằm ở `features/account/presentation/widgets/country_names_vi.dart`, sinh từ bản dịch `vi` của gói `phone_form_field` (MIT). Không sửa tay hàng loạt; nếu cần sinh lại thì đối chiếu với `IsoCode` của `phone_numbers_parser`.
 
+## Quy tắc về bản đồ
+
+- Mọi bản đồ dùng `PetMap` (`shared/map/pet_map.dart`), không dùng `MapLibreMap` trực tiếp. `PetMap` nhận ghim nhà (`PetMapMarker`), vùng tròn (`PetMapArea`), `interactive`, `flat`, `PetMapController` để di chuyển camera.
+- Hai kiểu bản đồ (`MapKind`): **Mô hình** (nhà nổi khối 3D, camera nghiêng 55°, ánh sáng Tự động/Ngày/Đêm, tự động thì đêm từ 18 h tới 6 h) và **Thường** (2D phẳng, có tên đường). Mặc định Mô hình. Người dùng đổi bằng nút "Kiểu bản đồ" trên tab Bản đồ; lựa chọn lưu ở SharedPreferences khoá `map_preferences` (chỉ là tuỳ chọn giao diện nên `MapPreferencesNotifier` đọc ghi thẳng, không qua repository).
+- Đổi kiểu hay ngày/đêm là nạp style mới; nhà và vùng là lớp GeoJSON riêng, thêm lại trong `onStyleLoadedCallback`. Lớp vùng đặt dưới lớp `building` của style.
+- Ghim nhà là **ảnh** do `HouseMarkerIcon` vẽ rồi nạp vào style (`addImage`), không phải widget Flutter đè lên bản đồ (widget đè lên bị trễ khi kéo và tốn pin). Ảnh dùng chung theo (nhà của mình hay không, các loài thú cưng, màu theme); tên nhà vẽ bằng `text-field` của MapLibre.
+- Màu bản đồ ăn theo theme: ghim nhà và bản đồ ban ngày (cả Mô hình lẫn Thường) nhuộm theo `primaryContainer` (`PetMapSpec.tint`), độ sáng cố định để bản đồ luôn nhạt. Nước, cây cỏ giữ màu tự nhiên; ban đêm giữ tông tím than. Không hard-code màu thương hiệu trong bản đồ.
+- Không có hoạt ảnh chạy liên tục trên bản đồ (bắt bản đồ vẽ lại mọi khung hình, hao pin).
+- Widget test phải override `petMapBuilderProvider` bằng bản giả và kiểm tra `PetMapSpec` (dữ liệu đưa vào bản đồ). MapLibre là view native, không dựng được trong test.
+- Tile OpenFreeMap miễn phí, không cần key nhưng không cam kết thời gian hoạt động. Phải đổi trước khi phát hành (xem `memory.md`).
+
 ## Quy tắc về vị trí (quyền riêng tư)
 
 - Lấy vị trí theo thứ tự GPS → Wi-Fi → mạng di động (`GeolocatorLocationService.attempts`, ứng với `LocationAccuracy` high → medium → low). Mỗi cách có thời gian chờ riêng, hết giờ thì thử cách kế tiếp.
 - Android/iOS không tách riêng Wi-Fi với trạm di động: mức "Wi-Fi" là định vị mạng ưu tiên Wi-Fi, mức "mạng di động" là chế độ tiết kiệm pin dựa vào trạm LTE (sai số có thể tới vài km). Tắt dịch vụ vị trí thì cả ba cách đều không dùng được.
-- **Người dùng không được tự tạo hay tự ghim vị trí.** Vị trí nhà chỉ lấy từ thiết bị (`LocationFix` do `LocationService` trả về). Bản đồ ở màn hình đăng ký chỉ để xem (`InteractiveFlag.none`, không có `onTap`). Có test trong `test/app_test.dart` kiểm tra chạm/kéo bản đồ không đổi vị trí.
+- **Người dùng không được tự tạo hay tự ghim vị trí.** Vị trí nhà chỉ lấy từ thiết bị (`LocationFix` do `LocationService` trả về). Bản đồ ở màn hình đăng ký chỉ để xem (`PetMap(interactive: false)`: tắt mọi cử chỉ, bọc `IgnorePointer`, không có `onMarkerTap`). Có test trong `test/app_test.dart` kiểm tra bản đồ đăng ký không nhận chạm và kéo không đổi vị trí.
 - **Không nhận vị trí giả lập** (`Position.isMocked`: app fake GPS / test provider trên Android, giả lập bằng phần mềm trên iOS 15+). `GeolocatorLocationService` ném `LocationFailure` ngay, không thử cách khác. GPS giả lập của emulator (Extended Controls → Location) không bị coi là giả, nên vẫn dùng để phát triển được. Còn vị trí bơm qua `adb shell cmd location providers ...` thì bị chặn.
 - Kiểm tra này chạy trên máy nên máy đã root vẫn có thể lách. Khi có backend, cần kiểm tra thêm ở server.
 - `accuracyMeters` là null khi hệ điều hành không đo được sai số (`Position.hasAccuracy == false`). Không coi 0 là "rất chính xác".
@@ -110,7 +125,8 @@ test/                      # chia thư mục giống lib/
 - Mỗi ngôi nhà có `realLocation` (vị trí thật) và `displayLocation` (vị trí lệch ngẫu nhiên 50–200 m).
 - `displayLocation` chỉ tạo **một lần** trong use case `RegisterHouse`, rồi lưu lại. Không bao giờ random lại lúc hiển thị, vì người xem lấy trung bình nhiều lần sẽ ra vị trí thật.
 - Bản đồ công khai và mọi thứ người khác thấy chỉ được dùng `displayLocation`. `realLocation` chỉ dành cho chủ nhà.
-- Có test trong `test/app_test.dart` kiểm tra marker trên bản đồ nằm ở `displayLocation`.
+- Bản đồ công khai vẽ mỗi nhà kèm một vùng tròn nét đứt tâm ở `displayLocation`, bán kính `LocationFuzzer.defaultMaxMeters` (200 m, nhà thật luôn nằm trong vùng này), và giới hạn zoom tối đa 17, để ghim không bị hiểu là đúng một toà nhà.
+- Có test trong `test/app_test.dart` kiểm tra ghim và vùng trên bản đồ nằm ở `displayLocation`.
 
 ## Ghi chú dự án
 

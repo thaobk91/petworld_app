@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:petworld_app/core/error/failures.dart';
 import 'package:petworld_app/core/location/geo_point.dart';
@@ -7,8 +6,7 @@ import 'package:petworld_app/core/location/location_fix.dart';
 import 'package:petworld_app/core/location/location_service.dart';
 import 'package:petworld_app/core/utils/formatters.dart';
 import 'package:petworld_app/features/house/presentation/state/house_providers.dart';
-import 'package:petworld_app/shared/widgets/house_pin.dart';
-import 'package:petworld_app/shared/widgets/map_layers.dart';
+import 'package:petworld_app/shared/map/pet_map.dart';
 import 'package:petworld_app/shared/widgets/note_card.dart';
 import 'package:petworld_app/shared/widgets/welcome_hero.dart';
 
@@ -269,7 +267,8 @@ class _MapPlaceholder extends StatelessWidget {
 }
 
 /// Bản đồ chỉ để xem vị trí máy vừa lấy được. Không cho chạm, kéo hay zoom,
-/// vì người dùng không được tự đặt ghim.
+/// vì người dùng không được tự đặt ghim. Luôn nhìn thẳng từ trên xuống để
+/// thấy rõ vòng sai số.
 class _LocationPreview extends StatelessWidget {
   const _LocationPreview({super.key, required this.fix});
 
@@ -288,44 +287,21 @@ class _LocationPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final point = fix.point.toLatLng();
     final accuracy = fix.accuracyMeters;
 
-    return FlutterMap(
-      options: MapOptions(
-        initialCenter: point,
-        initialZoom: _zoom,
-        interactionOptions: const InteractionOptions(
-          flags: InteractiveFlag.none,
-        ),
-      ),
-      children: [
-        petWorldTileLayer(),
+    return PetMap(
+      center: fix.point,
+      zoom: _zoom,
+      interactive: false,
+      flat: true,
+      markers: [PetMapMarker(id: 'preview', position: fix.point, isMine: true)],
+      areas: [
         if (accuracy != null && accuracy > 0)
-          CircleLayer(
-            circles: [
-              CircleMarker(
-                point: point,
-                radius: accuracy,
-                useRadiusInMeter: true,
-                color: colors.primaryContainer.withValues(alpha: 0.18),
-                borderColor: colors.primaryContainer,
-                borderStrokeWidth: 1.5,
-              ),
-            ],
+          PetMapArea(
+            center: fix.point,
+            radiusMeters: accuracy,
+            color: colors.primary,
           ),
-        MarkerLayer(
-          markers: [
-            Marker(
-              point: point,
-              width: HousePin.width,
-              height: HousePin.height,
-              alignment: Alignment.topCenter,
-              child: HousePin(color: colors.primaryContainer),
-            ),
-          ],
-        ),
-        mapAttribution(),
       ],
     );
   }

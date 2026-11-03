@@ -38,14 +38,13 @@ dependencies:
   go_router: ^18.1.2
   shared_preferences: ^2.5.6
   geolocator: ^14.1.2
-  flutter_map: ^8.3.2
-  latlong2: ^0.10.1
   image_picker: ^1.2.4
   path_provider: ^2.1.6
   path: ^1.9.1
   uuid: ^4.6.0
   phone_numbers_parser: ^9.0.29
   crypto: ^3.0.8
+  maplibre_gl: ^0.28.0
 
 dev_dependencies:
   flutter_test:

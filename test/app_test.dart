@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petworld_app/app/app.dart';
@@ -13,9 +12,12 @@ import 'package:petworld_app/core/location/location_service.dart';
 import 'package:petworld_app/core/security/password_hasher.dart';
 import 'package:petworld_app/core/storage/photo_storage.dart';
 import 'package:petworld_app/core/storage/shared_preferences_provider.dart';
+import 'package:petworld_app/core/theme/app_theme.dart';
 import 'package:petworld_app/features/account/data/models/account_dto.dart';
 import 'package:petworld_app/features/house/data/models/house_dto.dart';
-import 'package:petworld_app/features/map/presentation/widgets/house_marker.dart';
+import 'package:petworld_app/features/house/domain/services/location_fuzzer.dart';
+import 'package:petworld_app/shared/map/map_preferences.dart';
+import 'package:petworld_app/shared/map/pet_map.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Trả về [fix], hoặc ném [failure] nếu có (vd khi vị trí bị giả lập).
@@ -48,6 +50,33 @@ class _FakePasswordHasher implements PasswordHasher {
   Future<bool> verify(String password, String encoded) async =>
       encoded == 'hashed-${password.length}';
 }
+
+/// Bản đồ giả thay cho MapLibre (view native, không dựng được trong test).
+/// Test đọc [spec] để kiểm tra dữ liệu đưa vào bản đồ. Mỗi ghim là một nút để
+/// giả lập chạm vào nhà.
+class _FakePetMap extends StatelessWidget {
+  const _FakePetMap(this.spec);
+
+  final PetMapSpec spec;
+
+  @override
+  // Đặt ghim ở giữa để không nằm dưới thanh tiêu đề của bản đồ.
+  Widget build(BuildContext context) => Center(
+    child: Wrap(
+      children: [
+        for (final marker in spec.map.markers)
+          IconButton(
+            key: ValueKey('marker-${marker.id}'),
+            onPressed: () => spec.map.onMarkerTap?.call(marker.id),
+            icon: const Icon(Icons.home),
+          ),
+      ],
+    ),
+  );
+}
+
+PetMapSpec _mapSpec(WidgetTester tester) =>
+    tester.widget<_FakePetMap>(find.byType(_FakePetMap)).spec;
 
 const _savedAccount = AccountDto(
   id: 'a1',
@@ -105,6 +134,7 @@ void main() {
             _FakeLocationService(fix, failure: locationFailure),
           ),
           passwordHasherProvider.overrideWithValue(_FakePasswordHasher()),
+          petMapBuilderProvider.overrideWithValue(_FakePetMap.new),
         ],
         child: const PetWorldApp(),
       ),
@@ -276,17 +306,16 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Nhà của Milu');
     await tapLocate(tester);
 
-    final map = find.byType(FlutterMap);
-    await tester.tapAt(tester.getCenter(map) + const Offset(60, 40));
-    await tester.drag(map, const Offset(-80, 50));
-    await tester.pumpAndSettle();
+    // Bản đồ chỉ để xem: không nhận chạm, kéo, và ghim nằm đúng vị trí máy
+    // trả về.
+    final map = _mapSpec(tester).map;
+    expect(map.interactive, isFalse);
+    expect(map.onMarkerTap, isNull);
+    expect(map.markers.single.position, _gpsFix.point);
 
-    final marker = tester
-        .widget<MarkerLayer>(find.byType(MarkerLayer))
-        .markers
-        .single;
-    expect(marker.point.latitude, _gpsFix.point.latitude);
-    expect(marker.point.longitude, _gpsFix.point.longitude);
+    await tester.drag(find.byType(_FakePetMap), const Offset(-80, 50));
+    await tester.pumpAndSettle();
+    expect(_mapSpec(tester).map.markers.single.position, _gpsFix.point);
 
     await tester.tap(find.text('Đăng ký ngôi nhà'));
     await tester.pumpAndSettle();
@@ -345,7 +374,10 @@ void main() {
       find.textContaining('Hãy bật Wi-Fi hoặc ra chỗ thoáng'),
       findsOneWidget,
     );
-    expect(find.byType(CircleLayer), findsOneWidget);
+    final area = _mapSpec(tester).map.areas.single;
+    expect(area.radiusMeters, 1800);
+    // Màn đăng ký luôn nhìn thẳng từ trên xuống để thấy rõ vòng sai số.
+    expect(_mapSpec(tester).threeD, isFalse);
   });
 
   testWidgets('bản đồ đặt ngôi nhà ở vị trí lệch, không phải vị trí thật', (
@@ -353,17 +385,72 @@ void main() {
   ) async {
     await pumpApp(tester, withHouse: true);
 
-    final marker = tester
-        .widget<MarkerLayer>(find.byType(MarkerLayer))
-        .markers
-        .single;
-    expect(marker.point.latitude, _savedHouse.displayLat);
-    expect(marker.point.longitude, _savedHouse.displayLng);
+    final display = GeoPoint(_savedHouse.displayLat, _savedHouse.displayLng);
+    final map = _mapSpec(tester).map;
+    final marker = map.markers.single;
+    expect(marker.position, display);
+    expect(marker.isMine, isTrue);
+    // Vùng gần đúng cũng lấy tâm ở vị trí lệch, bán kính đủ chứa nhà thật.
+    final area = map.areas.single;
+    expect(area.center, display);
+    expect(area.radiusMeters, LocationFuzzer.defaultMaxMeters);
+    expect(map.maxZoom, lessThanOrEqualTo(17));
 
-    await tester.tap(find.byType(HouseMarker));
+    await tester.tap(find.byKey(const ValueKey('marker-h1')));
     await tester.pumpAndSettle();
     expect(find.text('Nhà của Milu'), findsOneWidget);
     expect(find.text('Nhà này chưa có thú cưng nào'), findsOneWidget);
+  });
+
+  testWidgets('đổi kiểu bản đồ thì bản đồ đổi ngay và nhớ lựa chọn', (
+    tester,
+  ) async {
+    await pumpApp(tester, withHouse: true);
+    expect(_mapSpec(tester).kind, MapKind.model);
+    expect(_mapSpec(tester).threeD, isTrue);
+
+    await tester.tap(find.byTooltip('Kiểu bản đồ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Thường'));
+    await tester.pumpAndSettle();
+
+    expect(_mapSpec(tester).kind, MapKind.normal);
+    expect(_mapSpec(tester).threeD, isFalse);
+    // Kiểu Thường không có tuỳ chọn ngày/đêm.
+    expect(find.text('Ánh sáng'), findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('map_preferences')!) as Map<String, dynamic>;
+    expect(saved['kind'], 'normal');
+  });
+
+  testWidgets('kiểu Mô hình chọn ánh sáng Đêm thì bản đồ vẽ ban đêm', (
+    tester,
+  ) async {
+    await pumpApp(tester, withHouse: true);
+
+    await tester.tap(find.byTooltip('Kiểu bản đồ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Đêm'));
+    await tester.pumpAndSettle();
+
+    expect(_mapSpec(tester).night, isTrue);
+  });
+
+  testWidgets('máy để chế độ tối thì app vẫn sáng, màu xanh lá cây', (
+    tester,
+  ) async {
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    await pumpApp(tester, withHouse: true);
+
+    final theme = Theme.of(tester.element(find.byType(Scaffold).first));
+    expect(theme.brightness, Brightness.light);
+    expect(
+      theme.colorScheme.primaryContainer,
+      AppTheme.light(AppPalette.leafGreen).colorScheme.primaryContainer,
+    );
   });
 
   testWidgets('thêm thú cưng rồi mở trang chi tiết', (tester) async {

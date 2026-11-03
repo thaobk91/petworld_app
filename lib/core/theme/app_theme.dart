@@ -1,26 +1,52 @@
 import 'package:flutter/material.dart';
 
-abstract final class AppTheme {
-  /// Cam san hô: ấm áp, gợi cảm giác thân thiện với thú cưng.
-  static const seed = Color(0xFFF2784B);
+/// Bảng màu của app: màu gốc để Material tạo cả bộ màu.
+class AppPalette {
+  const AppPalette({required this.name, required this.seed});
 
-  static ThemeData light() => _build(
+  /// Xanh lá cây: tươi, gợi cảm giác cỏ cây. Đang dùng.
+  static const leafGreen = AppPalette(
+    name: 'Xanh lá cây',
+    seed: Color(0xFF5DBB63),
+  );
+
+  // Hai bảng màu để sẵn, đang tắt. Muốn dùng thì đổi [current].
+  static const coral = AppPalette(name: 'Cam san hô', seed: Color(0xFFF2784B));
+  static const deepBlue = AppPalette(
+    name: 'Xanh dương đậm',
+    seed: Color(0xFF2F5DA8),
+  );
+
+  /// Bảng màu app đang dùng.
+  static const current = leafGreen;
+
+  final String name;
+
+  /// Với scheme `fidelity`, `primaryContainer` (nút chính, FAB) gần như đúng
+  /// màu này.
+  final Color seed;
+}
+
+abstract final class AppTheme {
+  /// App luôn dùng giao diện sáng (xem `PetWorldApp`).
+  static ThemeData light([AppPalette palette = AppPalette.current]) => _build(
     ColorScheme.fromSeed(
-      seedColor: seed,
+      seedColor: palette.seed,
       dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
     ),
   );
 
-  static ThemeData dark() => _build(
+  /// Giao diện tối, đang tắt. Giữ lại để bật lại sau.
+  static ThemeData dark([AppPalette palette = AppPalette.current]) => _build(
     ColorScheme.fromSeed(
-      seedColor: seed,
+      seedColor: palette.seed,
       brightness: Brightness.dark,
       dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
     ),
   );
 
-  /// Nền chuyển màu nhẹ cho phần đầu trang, cùng một tông đào. Không trộn
-  /// cam với xanh ngọc, vì ở giữa sẽ ra màu nâu xám.
+  /// Nền chuyển màu nhẹ cho phần đầu trang, từ màu nút chính sang màu phụ cùng
+  /// tông. Với xanh lá cây: xanh lá sang xanh nhạt.
   static LinearGradient softGradient(ColorScheme colors) => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
@@ -90,8 +116,9 @@ abstract final class AppTheme {
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
-        // Nền cam san hô, chữ nâu đậm (giống FAB). `primary` của scheme
-        // fidelity là màu gỉ sắt, nhìn nặng nề khi làm nút lớn.
+        // Nền đúng màu gốc, chữ cùng tông đậm (giống FAB). `primary` của
+        // scheme fidelity đậm hơn nhiều (xanh lá: xanh rừng #006E22), nhìn
+        // nặng nề khi làm nút lớn.
         style: FilledButton.styleFrom(
           backgroundColor: colors.primaryContainer,
           foregroundColor: colors.onPrimaryContainer,
@@ -123,6 +150,16 @@ abstract final class AppTheme {
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: colors.surfaceContainerLow,
         indicatorColor: colors.primaryContainer,
+        // Icon tab đang chọn nằm trên nền primaryContainer, nên dùng màu chữ
+        // đi kèm. Mặc định của Material ra màu sáng, chìm vào nền ở giao
+        // diện tối.
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? colors.onPrimaryContainer
+                : colors.onSurfaceVariant,
+          ),
+        ),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontSize: 12,
