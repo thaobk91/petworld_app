@@ -18,6 +18,7 @@ Mỗi mục một dòng, ghi kèm ngày (YYYY-MM-DD). Xóa hoặc sửa mục n�
 - 2026-11-03: Không cho người dùng tự tạo vị trí hay tự ghim vị trí trên bản đồ. Vị trí nhà chỉ lấy từ thiết bị. Anh cũng không muốn có nút "Chọn trên bản đồ" khi định vị thất bại.
 - 2026-11-03: Chặn vị trí giả lập (fake GPS) khi đăng ký nhà.
 - 2026-11-03: Bản đầu lưu trên máy, Supabase làm sau. Lúc nối Supabase: vị trí thật (`real_lat`, `real_lng`) chỉ chủ nhà được đọc, có thể tách sang bảng riêng có RLS.
+- 2026-11-03: Thêm màn hình đăng ký tài khoản, đứng trước màn hình đăng ký nhà. Anh yêu cầu: số điện thoại có chọn quốc gia; mật khẩu + nhập lại mật khẩu; mật khẩu phải có chữ, số và ít nhất 1 ký tự đặc biệt. Claude thêm: tối thiểu 8, tối đa 64 ký tự; chỉ nhận số di động (để sau gửi OTP); mặc định Việt Nam; mật khẩu băm PBKDF2 trước khi lưu.
 
 ## Bối cảnh
 
@@ -28,6 +29,8 @@ Mỗi mục một dòng, ghi kèm ngày (YYYY-MM-DD). Xóa hoặc sửa mục n�
 
 - 2026-11-03: Trên mạng của máy dev, `tile.openstreetmap.org` bị chặn hẳn (connection reset, cả từ PC lẫn emulator), còn CARTO basemaps giờ đòi API key (tile hiện chữ "API KEY REQUIRED"). Đang dùng `a.tile.openstreetmap.fr/hot`.
 - 2026-11-03: Làm lại giao diện theo hướng ấm áp, dễ thương sau khi anh chê xấu. Quy ước nằm trong CLAUDE.md, mục "Quy ước giao diện".
+- 2026-11-03: Chọn thư viện cho ô số điện thoại. `country_picker` không có tên nước tiếng Việt. `phone_form_field` 12 có tiếng Việt nhưng dùng `material_ui` (bản Material tách khỏi SDK), lớp `Theme` khác với `package:flutter/material.dart` nên không ăn theme của app. Vì vậy app dùng `phone_numbers_parser` + ô chọn quốc gia tự làm, tên nước tiếng Việt lấy từ bản dịch của `phone_form_field` (MIT).
+- 2026-11-03: Đo trên PC: PBKDF2 100.000 vòng mất khoảng 0,3 s (Dart VM). Trên điện thoại có thể tới khoảng 1 s, nên chạy ở isolate riêng và nút "Tạo tài khoản" hiện vòng xoay trong lúc chờ.
 
 ## Việc cần làm sau
 
@@ -38,3 +41,4 @@ Mỗi mục một dòng, ghi kèm ngày (YYYY-MM-DD). Xóa hoặc sửa mục n�
 - Tính năng sau: video thú cưng, trò chuyện với người xung quanh, chia sẻ kiến thức chăm sóc, tìm thú cưng đi lạc.
 - Bắt buộc trước khi lên store: báo cáo nội dung, chặn người dùng, xoá tài khoản trong app.
 - Còn thiếu: sửa/xoá thú cưng và ảnh, đổi tên nhà.
+- Tài khoản: chưa xác minh số điện thoại (OTP), chưa có đăng nhập, quên mật khẩu, đổi mật khẩu. Khi nối Supabase Auth: đăng ký bằng phone + password rồi xác minh OTP qua SMS (cần nhà cung cấp SMS, vd Twilio). Khi đó bỏ mã băm lưu trên máy, vì Supabase tự băm (bcrypt chỉ lấy 72 byte đầu, mật khẩu tối đa 64 ký tự có dấu vẫn có thể vượt 72 byte, cần kiểm tra lại). Gắn ngôi nhà với tài khoản (`owner_id`).

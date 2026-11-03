@@ -7,6 +7,7 @@ Hướng dẫn cho Claude khi làm việc trong dự án này.
 - PetWorld: app mobile viết bằng Flutter. Mỗi người dùng đăng ký một ngôi nhà, trong nhà có các thú cưng với hồ sơ và ảnh riêng. Ngôi nhà hiện trên bản đồ công khai.
 - Mục đích: khoe thú cưng, trò chuyện với người xung quanh, chia sẻ kiến thức chăm sóc, tìm thú cưng đi lạc. Xem `memory.md` để biết phần nào đã làm.
 - Bản hiện tại lưu mọi thứ trên máy, chưa có backend. Bản đồ chỉ có nhà của chính mình.
+- Luồng vào app (`AppGate`): đăng ký tài khoản (số điện thoại + mật khẩu) → đăng ký nhà → màn hình chính.
 
 ## Công nghệ
 
@@ -16,6 +17,7 @@ Hướng dẫn cho Claude khi làm việc trong dự án này.
 - Bản đồ: `flutter_map` + `latlong2`, tile OSM France style HOT, có lớp lọc màu cho dịu (`shared/widgets/map_layers.dart`).
 - Vị trí: `geolocator`. Ảnh: `image_picker`, file lưu trong thư mục documents (`path_provider`).
 - Lưu trữ: `shared_preferences` (dữ liệu JSON). ID tạo bằng `uuid`.
+- Số điện thoại: `phone_numbers_parser` (kiểm tra theo từng quốc gia, đổi sang E.164). Băm mật khẩu: `crypto` (PBKDF2 tự viết theo RFC 8018, có test với vector chuẩn).
 - Lint: `flutter_lints`.
 
 ## Lệnh thường dùng
@@ -35,17 +37,19 @@ dart format lib test # định dạng code
 ```
 lib/
 ├── main.dart              # khởi tạo SharedPreferences, thư mục documents, ProviderScope
-├── app/                   # PetWorldApp, AppGate (chưa có nhà → đăng ký), HomeShell (2 tab)
+├── app/                   # PetWorldApp, AppGate (tài khoản → nhà → màn hình chính), HomeShell (2 tab)
 ├── core/                  # dùng chung toàn app, không phụ thuộc feature (trừ router)
 │   ├── error/             # Failure, ValidationFailure, LocationFailure
 │   ├── location/          # GeoPoint, LocationFix, LocationService (GPS → Wi-Fi → mạng di động)
 │   ├── media/             # PhotoPicker (camera/thư viện)
 │   ├── router/            # app_routes.dart, app_router.dart (GoRouter)
+│   ├── security/          # PasswordHasher (PBKDF2-HMAC-SHA256)
 │   ├── storage/           # sharedPreferencesProvider, PhotoStorage
 │   ├── theme/
-│   └── utils/             # formatDate, formatAge
-├── shared/widgets/        # widget dùng ở nhiều tính năng: lớp bản đồ OSM, pickPhoto
+│   └── utils/             # formatDate, formatAge, foldForSearch (tìm không dấu)
+├── shared/widgets/        # widget dùng ở nhiều tính năng: lớp bản đồ OSM, pickPhoto, WelcomeHero, NoteCard
 └── features/
+    ├── account/           # đăng ký tài khoản: số điện thoại theo quốc gia, mật khẩu
     ├── house/             # đăng ký nhà, LocationFuzzer, màn hình "Nhà của tôi"
     ├── pets/              # hồ sơ thú cưng, ảnh đại diện, bộ sưu tập ảnh
     └── map/               # bản đồ công khai (chỉ presentation, đọc dữ liệu từ house)
@@ -62,7 +66,8 @@ test/                      # chia thư mục giống lib/
 ## Quy ước kiến trúc
 
 - Chiều phụ thuộc: `presentation → domain ← data`.
-- `domain` là Dart thuần, không import Flutter, Riverpod hay thư viện lưu trữ/HTTP. Được dùng `core/location/geo_point.dart` và `core/error/`.
+- `domain` là Dart thuần, không import Flutter, Riverpod hay thư viện lưu trữ/HTTP. Được dùng `core/location/geo_point.dart`, `core/error/` và thư viện Dart thuần chỉ tính toán (vd `phone_numbers_parser`).
+- Form có lỗi theo từng ô thì `validator` của ô gọi chính hàm kiểm tra ở domain (vd `PasswordPolicy.validate`), để thông báo lỗi chỉ viết một chỗ. Use case vẫn kiểm tra lại trước khi lưu.
 - `presentation` không import `data`. Repository và use case lấy qua provider trong `di.dart`.
 - Quy tắc nghiệp vụ đặt trong use case. Không đặt trong widget hay DTO.
 - Use case chỉ thêm khi có quy tắc thật. Nếu chỉ đọc/ghi dữ liệu thì Notifier gọi thẳng repository.
@@ -79,10 +84,19 @@ test/                      # chia thư mục giống lib/
 - Nút chính, FAB, ghim nhà của mình: dùng `primaryContainer` / `onPrimaryContainer`. Không dùng `primary` làm nền lớn, vì với scheme này nó ra màu gỉ sắt.
 - Nền đầu trang: `AppTheme.softGradient`. Không trộn cam với xanh ngọc, ở giữa sẽ ra màu nâu xám.
 - Mỗi loài thú cưng có emoji và màu pastel riêng (`pet_labels.dart`). Thú cưng chưa có ảnh thì hiện emoji trên nền pastel đó.
-- Widget dùng chung: `EmptyState`, `InfoPill`, `HousePin` trong `shared/widgets/`.
+- Widget dùng chung: `EmptyState`, `InfoPill`, `HousePin`, `WelcomeHero` (đầu trang màn hình chào mừng), `NoteCard` (ô ghi chú có emoji) trong `shared/widgets/`.
 - Ô nhập kiểu filled bo tròn (`UnderlineInputBorder` không viền). Không dùng `OutlineInputBorder`, vì nhãn nổi sẽ rơi ra ngoài ô.
 - Chữ trong `Row` phải bọc `Expanded`/`Flexible` để không tràn khi cỡ chữ hệ thống lớn. Widget test chạy ở 360×800 để bắt lỗi tràn.
 - Có 2 FAB trong cùng route (2 tab của `IndexedStack`), nên FAB của bản đồ đặt `heroTag: null`.
+
+## Quy tắc về tài khoản và mật khẩu
+
+- Đăng ký bằng số điện thoại + mật khẩu + nhập lại mật khẩu. Mỗi máy một tài khoản (bản lưu trên máy).
+- Số điện thoại: người dùng chọn quốc gia (mặc định Việt Nam, có tìm kiếm không dấu). Chỉ nhận **số di động** hợp lệ của nước đã chọn, vì sau này gửi OTP qua SMS. Lưu dạng E.164 (`+84912345678`). Quy tắc nằm trong `PhoneNumberRules`.
+- Mật khẩu (`PasswordPolicy`): ít nhất 8 ký tự, có chữ cái (kể cả chữ có dấu), có chữ số, có ít nhất 1 ký tự đặc biệt (bất kỳ ký tự nào không phải chữ, số hay khoảng trắng). Tối đa 64 ký tự. Độ dài đếm theo ký tự (`runes`), không theo đơn vị UTF-16.
+- **Không lưu mật khẩu nguyên văn.** `Pbkdf2PasswordHasher` băm PBKDF2-HMAC-SHA256, 100.000 vòng, salt ngẫu nhiên 16 byte, chạy trong `Isolate.run`. Chuỗi lưu có dạng `pbkdf2-sha256$<vòng>$<salt>$<mã băm>`, nên tăng số vòng sau này vẫn kiểm tra được mã cũ. Mã băm chỉ nằm ở lớp data (`AccountDto`), không có trên entity.
+- Widget test phải override `passwordHasherProvider` bằng bản giả. `Isolate.run` không xong được trong thời gian giả của `testWidgets`, test sẽ treo.
+- Tên quốc gia tiếng Việt nằm ở `features/account/presentation/widgets/country_names_vi.dart`, sinh từ bản dịch `vi` của gói `phone_form_field` (MIT). Không sửa tay hàng loạt; nếu cần sinh lại thì đối chiếu với `IsoCode` của `phone_numbers_parser`.
 
 ## Quy tắc về vị trí (quyền riêng tư)
 

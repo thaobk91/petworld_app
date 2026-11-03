@@ -5,11 +5,12 @@ import 'package:petworld_app/core/error/failures.dart';
 import 'package:petworld_app/core/location/geo_point.dart';
 import 'package:petworld_app/core/location/location_fix.dart';
 import 'package:petworld_app/core/location/location_service.dart';
-import 'package:petworld_app/core/theme/app_theme.dart';
 import 'package:petworld_app/core/utils/formatters.dart';
 import 'package:petworld_app/features/house/presentation/state/house_providers.dart';
 import 'package:petworld_app/shared/widgets/house_pin.dart';
 import 'package:petworld_app/shared/widgets/map_layers.dart';
+import 'package:petworld_app/shared/widgets/note_card.dart';
+import 'package:petworld_app/shared/widgets/welcome_hero.dart';
 
 class RegisterHouseScreen extends ConsumerStatefulWidget {
   const RegisterHouseScreen({super.key});
@@ -93,7 +94,13 @@ class _RegisterHouseScreenState extends ConsumerState<RegisterHouseScreen> {
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
-          const _Hero(),
+          const WelcomeHero(
+            emoji: '🏡 🐶 🐱',
+            title: 'Chào mừng đến PetWorld',
+            message:
+                'Đăng ký ngôi nhà, nơi các bé thú cưng của bạn sống, để làm '
+                'quen với những người bạn yêu thú cưng quanh đây.',
+          ),
           Padding(
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -162,7 +169,13 @@ class _RegisterHouseScreenState extends ConsumerState<RegisterHouseScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                const _PrivacyNote(),
+                const NoteCard(
+                  emoji: '🔒',
+                  title: 'Vị trí thật chỉ lưu cho bạn',
+                  message:
+                      'Trên bản đồ công khai, nhà của bạn hiện ở một điểm '
+                      'lệch ngẫu nhiên 50–200 m so với vị trí thật.',
+                ),
               ],
             ),
           ),
@@ -174,45 +187,6 @@ class _RegisterHouseScreenState extends ConsumerState<RegisterHouseScreen> {
           onPressed: fix == null || _saving ? null : () => _register(fix.point),
           child: const Text('Đăng ký ngôi nhà'),
         ),
-      ),
-    );
-  }
-}
-
-class _Hero extends StatelessWidget {
-  const _Hero();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        MediaQuery.paddingOf(context).top + 28,
-        24,
-        28,
-      ),
-      decoration: BoxDecoration(
-        gradient: AppTheme.softGradient(colors),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('🏡 🐶 🐱', style: TextStyle(fontSize: 36)),
-          const SizedBox(height: 16),
-          Text('Chào mừng đến PetWorld', style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(
-            'Đăng ký ngôi nhà, nơi các bé thú cưng của bạn sống, để làm '
-            'quen với những người bạn yêu thú cưng quanh đây.',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: colors.onSurfaceVariant,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -420,50 +394,6 @@ class _FixInfo extends StatelessWidget {
         else
           Text('Vị trí do máy tự xác định.', style: muted),
       ],
-    );
-  }
-}
-
-class _PrivacyNote extends StatelessWidget {
-  const _PrivacyNote();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colors.secondaryContainer.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('🔒', style: TextStyle(fontSize: 22)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Vị trí thật chỉ lưu cho bạn',
-                  style: theme.textTheme.titleSmall,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Trên bản đồ công khai, nhà của bạn hiện ở một điểm lệch '
-                  'ngẫu nhiên 50–200 m so với vị trí thật.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

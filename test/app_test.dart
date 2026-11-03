@@ -10,8 +10,10 @@ import 'package:petworld_app/core/error/failures.dart';
 import 'package:petworld_app/core/location/geo_point.dart';
 import 'package:petworld_app/core/location/location_fix.dart';
 import 'package:petworld_app/core/location/location_service.dart';
+import 'package:petworld_app/core/security/password_hasher.dart';
 import 'package:petworld_app/core/storage/photo_storage.dart';
 import 'package:petworld_app/core/storage/shared_preferences_provider.dart';
+import 'package:petworld_app/features/account/data/models/account_dto.dart';
 import 'package:petworld_app/features/house/data/models/house_dto.dart';
 import 'package:petworld_app/features/map/presentation/widgets/house_marker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -35,6 +37,24 @@ class _FakeLocationService implements LocationService {
     return fix;
   }
 }
+
+/// Băm giả, chạy tức thì. Bản thật chạy ở isolate riêng, không xong được
+/// trong thời gian giả của widget test.
+class _FakePasswordHasher implements PasswordHasher {
+  @override
+  Future<String> hash(String password) async => 'hashed-${password.length}';
+
+  @override
+  Future<bool> verify(String password, String encoded) async =>
+      encoded == 'hashed-${password.length}';
+}
+
+const _savedAccount = AccountDto(
+  id: 'a1',
+  phoneNumber: '+84912345678',
+  passwordHash: 'hashed-9',
+  createdAt: '2026-11-03T07:00:00.000',
+);
 
 const _gpsFix = LocationFix(
   point: GeoPoint(21.0285, 105.8542),
@@ -61,6 +81,7 @@ void main() {
 
   Future<void> pumpApp(
     WidgetTester tester, {
+    bool withAccount = true,
     bool withHouse = false,
     LocationFix fix = _gpsFix,
     LocationFailure? locationFailure,
@@ -71,6 +92,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     SharedPreferences.setMockInitialValues({
+      if (withAccount) 'account': jsonEncode(_savedAccount.toJson()),
       if (withHouse) 'house': jsonEncode(_savedHouse.toJson()),
     });
     final prefs = await SharedPreferences.getInstance();
@@ -82,6 +104,7 @@ void main() {
           locationServiceProvider.overrideWithValue(
             _FakeLocationService(fix, failure: locationFailure),
           ),
+          passwordHasherProvider.overrideWithValue(_FakePasswordHasher()),
         ],
         child: const PetWorldApp(),
       ),
@@ -93,6 +116,120 @@ void main() {
     await tester.tap(find.text('Nhà của tôi'));
     await tester.pumpAndSettle();
   }
+
+  Future<void> fillAccountForm(
+    WidgetTester tester, {
+    String phone = '0912 345 678',
+    String password = 'Milu@2026',
+    String? confirm,
+  }) async {
+    for (final (label, text) in [
+      ('Số điện thoại', phone),
+      ('Mật khẩu', password),
+      ('Nhập lại mật khẩu', confirm ?? password),
+    ]) {
+      final field = find.widgetWithText(TextFormField, label);
+      await tester.ensureVisible(field);
+      await tester.enterText(field, text);
+    }
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tapCreateAccount(WidgetTester tester) async {
+    await tester.tap(find.text('Tạo tài khoản'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('chưa có tài khoản: đăng ký tài khoản rồi tới đăng ký nhà', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    expect(find.text('Tạo tài khoản PetWorld'), findsOneWidget);
+    expect(find.text('+84'), findsOneWidget);
+
+    await fillAccountForm(tester);
+    await tapCreateAccount(tester);
+
+    expect(find.text('Chào mừng đến PetWorld'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('account')!) as Map<String, dynamic>;
+    expect(saved['phone_number'], '+84912345678');
+    // Chỉ lưu mã băm, không lưu mật khẩu nguyên văn.
+    expect(saved['password_hash'], 'hashed-9');
+    expect(prefs.getString('account'), isNot(contains('Milu@2026')));
+  });
+
+  testWidgets('nhập sai thì báo lỗi dưới từng ô, không tạo tài khoản', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    await fillAccountForm(
+      tester,
+      phone: '0912',
+      password: 'milu2026',
+      confirm: 'milu2025',
+    );
+    await tapCreateAccount(tester);
+
+    expect(find.text('Số điện thoại di động không đúng'), findsOneWidget);
+    expect(
+      find.text('Mật khẩu cần có ít nhất 1 ký tự đặc biệt'),
+      findsOneWidget,
+    );
+    expect(find.text('Mật khẩu nhập lại không khớp'), findsOneWidget);
+    expect(find.text('Tạo tài khoản PetWorld'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('account'), isNull);
+  });
+
+  testWidgets('danh sách yêu cầu mật khẩu được tích dần khi gõ', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    final password = find.widgetWithText(TextFormField, 'Mật khẩu');
+    final checked = find.byIcon(Icons.check_circle);
+
+    await tester.enterText(password, 'milu');
+    await tester.pump();
+    expect(checked, findsOneWidget); // có chữ cái
+
+    await tester.enterText(password, 'milu2026');
+    await tester.pump();
+    expect(checked, findsNWidgets(3)); // + chữ số, đủ 8 ký tự
+
+    await tester.enterText(password, 'milu@2026');
+    await tester.pump();
+    expect(checked, findsNWidgets(4)); // + ký tự đặc biệt
+  });
+
+  testWidgets('chọn quốc gia khác thì kiểm tra và lưu theo mã vùng đó', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+
+    await tester.tap(find.text('+84'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chọn quốc gia'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Tìm tên nước hoặc mã vùng'),
+      'nhat',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nhật Bản'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chọn quốc gia'), findsNothing);
+    expect(find.text('+81'), findsOneWidget);
+
+    await fillAccountForm(tester, phone: '090 1234 5678');
+    await tapCreateAccount(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('account')!) as Map<String, dynamic>;
+    expect(saved['phone_number'], '+819012345678');
+  });
 
   testWidgets('chưa có nhà: đăng ký nhà rồi vào màn hình chính', (
     tester,
