@@ -40,4 +40,17 @@ void main() {
       expect(formatAge(DateTime(2024, 8, 1), now), '2 tuổi 3 tháng');
     });
   });
+
+  test('thời gian đăng bài', () {
+    final now = DateTime(2026, 11, 3, 12);
+    String ago(Duration elapsed) => formatTimeAgo(now.subtract(elapsed), now);
+
+    expect(ago(const Duration(seconds: 30)), 'Vừa xong');
+    expect(ago(const Duration(minutes: 5)), '5 phút trước');
+    expect(ago(const Duration(hours: 3)), '3 giờ trước');
+    expect(ago(const Duration(days: 2)), '2 ngày trước');
+    expect(ago(const Duration(days: 10)), '24/10/2026');
+    // Giờ máy lệch về sau thì coi như vừa đăng.
+    expect(formatTimeAgo(now.add(const Duration(minutes: 1)), now), 'Vừa xong');
+  });
 }

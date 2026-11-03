@@ -14,6 +14,7 @@ import 'package:petworld_app/core/storage/photo_storage.dart';
 import 'package:petworld_app/core/storage/shared_preferences_provider.dart';
 import 'package:petworld_app/core/theme/app_theme.dart';
 import 'package:petworld_app/features/account/data/models/account_dto.dart';
+import 'package:petworld_app/features/community/presentation/widgets/group_widgets.dart';
 import 'package:petworld_app/features/house/data/models/house_dto.dart';
 import 'package:petworld_app/features/house/domain/services/location_fuzzer.dart';
 import 'package:petworld_app/shared/map/map_preferences.dart';
@@ -144,6 +145,11 @@ void main() {
 
   Future<void> openMyHouseTab(WidgetTester tester) async {
     await tester.tap(find.text('Nhà của tôi'));
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openCommunityTab(WidgetTester tester) async {
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Cộng đồng'));
     await tester.pumpAndSettle();
   }
 
@@ -436,6 +442,77 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_mapSpec(tester).night, isTrue);
+  });
+
+  testWidgets('tab Cộng đồng có nhóm sẵn, tham gia thì lên "Nhóm của bạn"', (
+    tester,
+  ) async {
+    await pumpApp(tester, withHouse: true);
+    await openCommunityTab(tester);
+
+    expect(find.text('Bạn chưa tham gia nhóm nào'), findsOneWidget);
+    final cats = find.widgetWithText(GroupCard, 'Hội yêu mèo');
+    await tester.ensureVisible(cats);
+    // Cuộn xong phải vẽ lại thì nút mới thật sự ở chỗ mới.
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(of: cats, matching: find.text('Tham gia')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bạn chưa tham gia nhóm nào'), findsNothing);
+    // Đã tham gia thì thẻ không còn nút "Tham gia".
+    expect(
+      find.descendant(
+        of: find.widgetWithText(GroupCard, 'Hội yêu mèo'),
+        matching: find.text('Tham gia'),
+      ),
+      findsNothing,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getStringList('community_joined_groups'), ['builtin-cats']);
+  });
+
+  testWidgets('tạo nhóm, đăng bài rồi xoá bài trong nhóm', (tester) async {
+    await pumpApp(tester, withHouse: true);
+    await openCommunityTab(tester);
+
+    await tester.tap(find.widgetWithText(FloatingActionButton, 'Tạo nhóm'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Tên nhóm'),
+      'Hội corgi Hà Nội',
+    );
+    await tester.tap(find.text('Gặp gỡ'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Tạo nhóm'));
+    await tester.pumpAndSettle();
+
+    // Tạo xong vào thẳng nhóm, người tạo đã là thành viên.
+    expect(find.text('Hội corgi Hà Nội'), findsWidgets);
+    expect(find.text('Rời nhóm'), findsOneWidget);
+    expect(find.text('Chưa có bài viết nào'), findsOneWidget);
+
+    await tester.tap(find.text('Viết bài'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Đăng bài'));
+    await tester.pumpAndSettle();
+    expect(find.text('Bài viết chưa có nội dung'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Chào cả nhà, mình mới vào');
+    await tester.tap(find.text('Đăng bài'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chào cả nhà, mình mới vào'), findsOneWidget);
+    expect(find.text('Nhà của Milu'), findsOneWidget);
+    expect(find.text('1 bài viết'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Tuỳ chọn bài viết'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Xoá bài viết'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Xoá'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chưa có bài viết nào'), findsOneWidget);
+    expect(find.text('0 bài viết'), findsOneWidget);
   });
 
   testWidgets('máy để chế độ tối thì app vẫn sáng, màu xanh lá cây', (

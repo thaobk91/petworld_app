@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:petworld_app/features/community/presentation/screens/community_screen.dart';
 import 'package:petworld_app/features/house/presentation/screens/my_house_screen.dart';
 import 'package:petworld_app/features/map/presentation/screens/map_screen.dart';
 
-/// Màn hình chính với 2 tab: Bản đồ và Nhà của tôi.
+/// Màn hình chính với 3 tab: Bản đồ, Nhà của tôi, Cộng đồng.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -20,7 +21,7 @@ class _HomeShellState extends State<HomeShell> {
       // bản đồ) khi chuyển qua lại.
       body: IndexedStack(
         index: _index,
-        children: const [MapScreen(), MyHouseScreen()],
+        children: const [MapScreen(), MyHouseScreen(), CommunityScreen()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
@@ -35,6 +36,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Nhà của tôi',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups),
+            label: 'Cộng đồng',
           ),
         ],
       ),

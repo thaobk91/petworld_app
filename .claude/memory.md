@@ -21,6 +21,7 @@ Mỗi mục một dòng, ghi kèm ngày (YYYY-MM-DD). Xóa hoặc sửa mục n�
 - 2026-11-03: Thêm màn hình đăng ký tài khoản, đứng trước màn hình đăng ký nhà. Anh yêu cầu: số điện thoại có chọn quốc gia; mật khẩu + nhập lại mật khẩu; mật khẩu phải có chữ, số và ít nhất 1 ký tự đặc biệt. Claude thêm: tối thiểu 8, tối đa 64 ký tự; chỉ nhận số di động (để sau gửi OTP); mặc định Việt Nam; mật khẩu băm PBKDF2 trước khi lưu.
 
 - 2026-11-03: Đổi màu app từ cam san hô sang xanh lá cây `#5DBB63`, sau khi anh xem ảnh chụp 11 bảng màu. Anh muốn để sẵn cam san hô và xanh dương đậm `#2F5DA8` trong code nhưng tắt, và tắt giao diện tối: app luôn sáng, code giao diện tối vẫn giữ.
+- 2026-11-03: Thêm tab thứ 3 "Cộng đồng" (thứ tự Bản đồ → Nhà của tôi → Cộng đồng), để mọi người tạo nhóm, chia sẻ bài viết. Anh chọn bản đầu chỉ gồm nhóm (tạo, tham gia, rời, đăng bài chữ trong nhóm) và vài nhóm chủ đề có sẵn, lưu trên máy. Các phần để sau: bảng tin chung, ảnh trong bài, thích và bình luận.
 
 ## Bối cảnh
 
@@ -50,6 +51,11 @@ Mỗi mục một dòng, ghi kèm ngày (YYYY-MM-DD). Xóa hoặc sửa mục n�
 - Cân nhắc thêm font tròn, thân thiện, hỗ trợ tiếng Việt tốt (vd Nunito, Be Vietnam Pro), đóng gói font vào app thay vì tải lúc chạy.
 - Nối Supabase: đăng nhập, bảng houses / pets / pet_photos, bucket lưu ảnh, RLS bảo vệ vị trí thật. Thêm kiểm tra chống giả vị trí ở server (vd Play Integrity / App Attest), vì kiểm tra `isMocked` trên máy bị máy root lách được.
 - Tính năng sau: video thú cưng, trò chuyện với người xung quanh, chia sẻ kiến thức chăm sóc, tìm thú cưng đi lạc.
-- Bắt buộc trước khi lên store: báo cáo nội dung, chặn người dùng, xoá tài khoản trong app.
+- Bắt buộc trước khi lên store: báo cáo nội dung, chặn người dùng, xoá tài khoản trong app. Có tab Cộng đồng (nội dung do người dùng đăng) nên phần báo cáo bài viết và kiểm duyệt càng cần.
+- Cộng đồng khi nối Supabase:
+  - Bảng: `groups`, `group_members`, `group_posts`.
+  - RLS: chỉ thành viên được đăng bài; chỉ tác giả được xoá bài.
+  - Nhóm có sẵn chuyển thành dữ liệu trên server, giữ nguyên id `builtin-...`.
+  - Bài viết nên lưu id tài khoản, ngoài id ngôi nhà.
 - Còn thiếu: sửa/xoá thú cưng và ảnh, đổi tên nhà.
 - Tài khoản: chưa xác minh số điện thoại (OTP), chưa có đăng nhập, quên mật khẩu, đổi mật khẩu. Khi nối Supabase Auth: đăng ký bằng phone + password rồi xác minh OTP qua SMS (cần nhà cung cấp SMS, vd Twilio). Khi đó bỏ mã băm lưu trên máy, vì Supabase tự băm (bcrypt chỉ lấy 72 byte đầu, mật khẩu tối đa 64 ký tự có dấu vẫn có thể vượt 72 byte, cần kiểm tra lại). Gắn ngôi nhà với tài khoản (`owner_id`).

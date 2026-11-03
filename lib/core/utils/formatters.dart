@@ -4,6 +4,17 @@ String formatDate(DateTime date) {
   return '${twoDigits(date.day)}/${twoDigits(date.month)}/${date.year}';
 }
 
+/// Thời điểm đăng so với [now]: "Vừa xong", "5 phút trước", "3 giờ trước",
+/// "2 ngày trước", quá một tuần thì hiện ngày.
+String formatTimeAgo(DateTime time, DateTime now) {
+  final elapsed = now.difference(time);
+  if (elapsed.inMinutes < 1) return 'Vừa xong';
+  if (elapsed.inHours < 1) return '${elapsed.inMinutes} phút trước';
+  if (elapsed.inDays < 1) return '${elapsed.inHours} giờ trước';
+  if (elapsed.inDays < 7) return '${elapsed.inDays} ngày trước';
+  return formatDate(time);
+}
+
 /// Khoảng cách gọn: "8 m", "350 m", "1,2 km".
 String formatDistance(double meters) {
   if (meters < 1000) return '${meters.round()} m';
