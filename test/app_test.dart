@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:petworld_app/app/app.dart';
@@ -10,10 +9,15 @@ import 'package:petworld_app/core/error/failures.dart';
 import 'package:petworld_app/core/location/geo_point.dart';
 import 'package:petworld_app/core/location/location_fix.dart';
 import 'package:petworld_app/core/location/location_service.dart';
+import 'package:petworld_app/core/security/password_hasher.dart';
 import 'package:petworld_app/core/storage/photo_storage.dart';
 import 'package:petworld_app/core/storage/shared_preferences_provider.dart';
+import 'package:petworld_app/core/theme/app_theme.dart';
+import 'package:petworld_app/features/account/data/models/account_dto.dart';
 import 'package:petworld_app/features/house/data/models/house_dto.dart';
-import 'package:petworld_app/features/map/presentation/widgets/house_marker.dart';
+import 'package:petworld_app/features/house/domain/services/location_fuzzer.dart';
+import 'package:petworld_app/shared/map/map_preferences.dart';
+import 'package:petworld_app/shared/map/pet_map.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Trả về [fix], hoặc ném [failure] nếu có (vd khi vị trí bị giả lập).
@@ -35,6 +39,51 @@ class _FakeLocationService implements LocationService {
     return fix;
   }
 }
+
+/// Băm giả, chạy tức thì. Bản thật chạy ở isolate riêng, không xong được
+/// trong thời gian giả của widget test.
+class _FakePasswordHasher implements PasswordHasher {
+  @override
+  Future<String> hash(String password) async => 'hashed-${password.length}';
+
+  @override
+  Future<bool> verify(String password, String encoded) async =>
+      encoded == 'hashed-${password.length}';
+}
+
+/// Bản đồ giả thay cho MapLibre (view native, không dựng được trong test).
+/// Test đọc [spec] để kiểm tra dữ liệu đưa vào bản đồ. Mỗi ghim là một nút để
+/// giả lập chạm vào nhà.
+class _FakePetMap extends StatelessWidget {
+  const _FakePetMap(this.spec);
+
+  final PetMapSpec spec;
+
+  @override
+  // Đặt ghim ở giữa để không nằm dưới thanh tiêu đề của bản đồ.
+  Widget build(BuildContext context) => Center(
+    child: Wrap(
+      children: [
+        for (final marker in spec.map.markers)
+          IconButton(
+            key: ValueKey('marker-${marker.id}'),
+            onPressed: () => spec.map.onMarkerTap?.call(marker.id),
+            icon: const Icon(Icons.home),
+          ),
+      ],
+    ),
+  );
+}
+
+PetMapSpec _mapSpec(WidgetTester tester) =>
+    tester.widget<_FakePetMap>(find.byType(_FakePetMap)).spec;
+
+const _savedAccount = AccountDto(
+  id: 'a1',
+  phoneNumber: '+84912345678',
+  passwordHash: 'hashed-9',
+  createdAt: '2026-11-03T07:00:00.000',
+);
 
 const _gpsFix = LocationFix(
   point: GeoPoint(21.0285, 105.8542),
@@ -61,6 +110,7 @@ void main() {
 
   Future<void> pumpApp(
     WidgetTester tester, {
+    bool withAccount = true,
     bool withHouse = false,
     LocationFix fix = _gpsFix,
     LocationFailure? locationFailure,
@@ -71,6 +121,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     SharedPreferences.setMockInitialValues({
+      if (withAccount) 'account': jsonEncode(_savedAccount.toJson()),
       if (withHouse) 'house': jsonEncode(_savedHouse.toJson()),
     });
     final prefs = await SharedPreferences.getInstance();
@@ -82,6 +133,8 @@ void main() {
           locationServiceProvider.overrideWithValue(
             _FakeLocationService(fix, failure: locationFailure),
           ),
+          passwordHasherProvider.overrideWithValue(_FakePasswordHasher()),
+          petMapBuilderProvider.overrideWithValue(_FakePetMap.new),
         ],
         child: const PetWorldApp(),
       ),
@@ -93,6 +146,120 @@ void main() {
     await tester.tap(find.text('Nhà của tôi'));
     await tester.pumpAndSettle();
   }
+
+  Future<void> fillAccountForm(
+    WidgetTester tester, {
+    String phone = '0912 345 678',
+    String password = 'Milu@2026',
+    String? confirm,
+  }) async {
+    for (final (label, text) in [
+      ('Số điện thoại', phone),
+      ('Mật khẩu', password),
+      ('Nhập lại mật khẩu', confirm ?? password),
+    ]) {
+      final field = find.widgetWithText(TextFormField, label);
+      await tester.ensureVisible(field);
+      await tester.enterText(field, text);
+    }
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> tapCreateAccount(WidgetTester tester) async {
+    await tester.tap(find.text('Tạo tài khoản'));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('chưa có tài khoản: đăng ký tài khoản rồi tới đăng ký nhà', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    expect(find.text('Tạo tài khoản PetWorld'), findsOneWidget);
+    expect(find.text('+84'), findsOneWidget);
+
+    await fillAccountForm(tester);
+    await tapCreateAccount(tester);
+
+    expect(find.text('Chào mừng đến PetWorld'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('account')!) as Map<String, dynamic>;
+    expect(saved['phone_number'], '+84912345678');
+    // Chỉ lưu mã băm, không lưu mật khẩu nguyên văn.
+    expect(saved['password_hash'], 'hashed-9');
+    expect(prefs.getString('account'), isNot(contains('Milu@2026')));
+  });
+
+  testWidgets('nhập sai thì báo lỗi dưới từng ô, không tạo tài khoản', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    await fillAccountForm(
+      tester,
+      phone: '0912',
+      password: 'milu2026',
+      confirm: 'milu2025',
+    );
+    await tapCreateAccount(tester);
+
+    expect(find.text('Số điện thoại di động không đúng'), findsOneWidget);
+    expect(
+      find.text('Mật khẩu cần có ít nhất 1 ký tự đặc biệt'),
+      findsOneWidget,
+    );
+    expect(find.text('Mật khẩu nhập lại không khớp'), findsOneWidget);
+    expect(find.text('Tạo tài khoản PetWorld'), findsOneWidget);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('account'), isNull);
+  });
+
+  testWidgets('danh sách yêu cầu mật khẩu được tích dần khi gõ', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+    final password = find.widgetWithText(TextFormField, 'Mật khẩu');
+    final checked = find.byIcon(Icons.check_circle);
+
+    await tester.enterText(password, 'milu');
+    await tester.pump();
+    expect(checked, findsOneWidget); // có chữ cái
+
+    await tester.enterText(password, 'milu2026');
+    await tester.pump();
+    expect(checked, findsNWidgets(3)); // + chữ số, đủ 8 ký tự
+
+    await tester.enterText(password, 'milu@2026');
+    await tester.pump();
+    expect(checked, findsNWidgets(4)); // + ký tự đặc biệt
+  });
+
+  testWidgets('chọn quốc gia khác thì kiểm tra và lưu theo mã vùng đó', (
+    tester,
+  ) async {
+    await pumpApp(tester, withAccount: false);
+
+    await tester.tap(find.text('+84'));
+    await tester.pumpAndSettle();
+    expect(find.text('Chọn quốc gia'), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Tìm tên nước hoặc mã vùng'),
+      'nhat',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Nhật Bản'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Chọn quốc gia'), findsNothing);
+    expect(find.text('+81'), findsOneWidget);
+
+    await fillAccountForm(tester, phone: '090 1234 5678');
+    await tapCreateAccount(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('account')!) as Map<String, dynamic>;
+    expect(saved['phone_number'], '+819012345678');
+  });
 
   testWidgets('chưa có nhà: đăng ký nhà rồi vào màn hình chính', (
     tester,
@@ -139,17 +306,16 @@ void main() {
     await tester.enterText(find.byType(TextField), 'Nhà của Milu');
     await tapLocate(tester);
 
-    final map = find.byType(FlutterMap);
-    await tester.tapAt(tester.getCenter(map) + const Offset(60, 40));
-    await tester.drag(map, const Offset(-80, 50));
-    await tester.pumpAndSettle();
+    // Bản đồ chỉ để xem: không nhận chạm, kéo, và ghim nằm đúng vị trí máy
+    // trả về.
+    final map = _mapSpec(tester).map;
+    expect(map.interactive, isFalse);
+    expect(map.onMarkerTap, isNull);
+    expect(map.markers.single.position, _gpsFix.point);
 
-    final marker = tester
-        .widget<MarkerLayer>(find.byType(MarkerLayer))
-        .markers
-        .single;
-    expect(marker.point.latitude, _gpsFix.point.latitude);
-    expect(marker.point.longitude, _gpsFix.point.longitude);
+    await tester.drag(find.byType(_FakePetMap), const Offset(-80, 50));
+    await tester.pumpAndSettle();
+    expect(_mapSpec(tester).map.markers.single.position, _gpsFix.point);
 
     await tester.tap(find.text('Đăng ký ngôi nhà'));
     await tester.pumpAndSettle();
@@ -208,7 +374,10 @@ void main() {
       find.textContaining('Hãy bật Wi-Fi hoặc ra chỗ thoáng'),
       findsOneWidget,
     );
-    expect(find.byType(CircleLayer), findsOneWidget);
+    final area = _mapSpec(tester).map.areas.single;
+    expect(area.radiusMeters, 1800);
+    // Màn đăng ký luôn nhìn thẳng từ trên xuống để thấy rõ vòng sai số.
+    expect(_mapSpec(tester).threeD, isFalse);
   });
 
   testWidgets('bản đồ đặt ngôi nhà ở vị trí lệch, không phải vị trí thật', (
@@ -216,17 +385,72 @@ void main() {
   ) async {
     await pumpApp(tester, withHouse: true);
 
-    final marker = tester
-        .widget<MarkerLayer>(find.byType(MarkerLayer))
-        .markers
-        .single;
-    expect(marker.point.latitude, _savedHouse.displayLat);
-    expect(marker.point.longitude, _savedHouse.displayLng);
+    final display = GeoPoint(_savedHouse.displayLat, _savedHouse.displayLng);
+    final map = _mapSpec(tester).map;
+    final marker = map.markers.single;
+    expect(marker.position, display);
+    expect(marker.isMine, isTrue);
+    // Vùng gần đúng cũng lấy tâm ở vị trí lệch, bán kính đủ chứa nhà thật.
+    final area = map.areas.single;
+    expect(area.center, display);
+    expect(area.radiusMeters, LocationFuzzer.defaultMaxMeters);
+    expect(map.maxZoom, lessThanOrEqualTo(17));
 
-    await tester.tap(find.byType(HouseMarker));
+    await tester.tap(find.byKey(const ValueKey('marker-h1')));
     await tester.pumpAndSettle();
     expect(find.text('Nhà của Milu'), findsOneWidget);
     expect(find.text('Nhà này chưa có thú cưng nào'), findsOneWidget);
+  });
+
+  testWidgets('đổi kiểu bản đồ thì bản đồ đổi ngay và nhớ lựa chọn', (
+    tester,
+  ) async {
+    await pumpApp(tester, withHouse: true);
+    expect(_mapSpec(tester).kind, MapKind.model);
+    expect(_mapSpec(tester).threeD, isTrue);
+
+    await tester.tap(find.byTooltip('Kiểu bản đồ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Thường'));
+    await tester.pumpAndSettle();
+
+    expect(_mapSpec(tester).kind, MapKind.normal);
+    expect(_mapSpec(tester).threeD, isFalse);
+    // Kiểu Thường không có tuỳ chọn ngày/đêm.
+    expect(find.text('Ánh sáng'), findsNothing);
+
+    final prefs = await SharedPreferences.getInstance();
+    final saved =
+        jsonDecode(prefs.getString('map_preferences')!) as Map<String, dynamic>;
+    expect(saved['kind'], 'normal');
+  });
+
+  testWidgets('kiểu Mô hình chọn ánh sáng Đêm thì bản đồ vẽ ban đêm', (
+    tester,
+  ) async {
+    await pumpApp(tester, withHouse: true);
+
+    await tester.tap(find.byTooltip('Kiểu bản đồ'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Đêm'));
+    await tester.pumpAndSettle();
+
+    expect(_mapSpec(tester).night, isTrue);
+  });
+
+  testWidgets('máy để chế độ tối thì app vẫn sáng, màu xanh lá cây', (
+    tester,
+  ) async {
+    tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
+    addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
+    await pumpApp(tester, withHouse: true);
+
+    final theme = Theme.of(tester.element(find.byType(Scaffold).first));
+    expect(theme.brightness, Brightness.light);
+    expect(
+      theme.colorScheme.primaryContainer,
+      AppTheme.light(AppPalette.leafGreen).colorScheme.primaryContainer,
+    );
   });
 
   testWidgets('thêm thú cưng rồi mở trang chi tiết', (tester) async {

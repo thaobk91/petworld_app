@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:petworld_app/core/location/geo_point.dart';
+import 'package:petworld_app/features/house/domain/entities/house.dart';
+import 'package:petworld_app/features/house/domain/services/location_fuzzer.dart';
 import 'package:petworld_app/features/house/presentation/state/house_providers.dart';
-import 'package:petworld_app/features/map/presentation/widgets/house_marker.dart';
 import 'package:petworld_app/features/map/presentation/widgets/house_sheet.dart';
-import 'package:petworld_app/shared/widgets/house_pin.dart';
-import 'package:petworld_app/shared/widgets/map_layers.dart';
+import 'package:petworld_app/features/pets/presentation/state/pet_list_notifier.dart';
+import 'package:petworld_app/features/pets/presentation/widgets/pet_labels.dart';
+import 'package:petworld_app/shared/map/map_style_sheet.dart';
+import 'package:petworld_app/shared/map/pet_map.dart';
 
 /// Bản đồ công khai. Chỉ dùng `displayLocation`, không bao giờ dùng
 /// `realLocation` của ngôi nhà.
@@ -21,16 +23,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // Hà Nội, chỉ dùng khi chưa có ngôi nhà nào.
   static const _fallbackCenter = GeoPoint(21.0285, 105.8542);
 
-  final _mapController = MapController();
+  final _mapController = PetMapController();
 
-  @override
-  void dispose() {
-    _mapController.dispose();
-    super.dispose();
+  /// Emoji các loài thú cưng khác nhau trong nhà, để vẽ lên ghim.
+  List<String> _petEmojis(House house) {
+    final pets = ref.watch(petListProvider(house.id)).value ?? const [];
+    return {for (final pet in pets) pet.species.emoji}.toList();
+  }
+
+  void _showHouse(List<House> houses, String id) {
+    final house = houses.where((house) => house.id == id).firstOrNull;
+    if (house == null) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (_) => HouseSheet(house: house),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     final myHouse = ref.watch(myHouseProvider).value;
     final houses = ref.watch(allHousesProvider).value ?? const [];
     final center = myHouse?.displayLocation ?? _fallbackCenter;
@@ -38,39 +50,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: center.toLatLng(),
-              initialZoom: 16,
-              minZoom: 3,
-              // Vị trí đã lệch tới 200 m nên zoom sâu hơn cũng không có ích.
+          Positioned.fill(
+            child: PetMap(
+              center: center,
+              // Vị trí đã lệch tới 200 m, zoom sâu hơn thì ghim nằm đè lên đúng
+              // một toà nhà, dễ bị hiểu nhầm là nhà thật.
               maxZoom: 17,
-              interactionOptions: noRotation,
+              controller: _mapController,
+              markers: [
+                for (final house in houses)
+                  PetMapMarker(
+                    id: house.id,
+                    position: house.displayLocation,
+                    label: house.name,
+                    isMine: house.id == myHouse?.id,
+                    pets: _petEmojis(house),
+                  ),
+              ],
+              areas: [
+                for (final house in houses)
+                  PetMapArea(
+                    center: house.displayLocation,
+                    radiusMeters: LocationFuzzer.defaultMaxMeters,
+                    color: house.id == myHouse?.id
+                        ? colors.primary
+                        : colors.tertiary,
+                  ),
+              ],
+              onMarkerTap: (id) => _showHouse(houses, id),
             ),
-            children: [
-              petWorldTileLayer(),
-              MarkerLayer(
-                markers: [
-                  for (final house in houses)
-                    Marker(
-                      point: house.displayLocation.toLatLng(),
-                      width: HousePin.width,
-                      height: HousePin.height,
-                      alignment: Alignment.topCenter,
-                      child: HouseMarker(
-                        house: house,
-                        isMine: house.id == myHouse?.id,
-                        onTap: () => showModalBottomSheet<void>(
-                          context: context,
-                          builder: (_) => HouseSheet(house: house),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              mapAttribution(),
-            ],
           ),
           Positioned(
             top: 0,
@@ -90,8 +98,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               // hai hero trùng tag mặc định sẽ lỗi khi chuyển màn hình.
               heroTag: null,
               tooltip: 'Về nhà của tôi',
-              onPressed: () =>
-                  _mapController.move(myHouse.displayLocation.toLatLng(), 16),
+              onPressed: () => _mapController.moveTo(myHouse.displayLocation),
               child: const Icon(Icons.home_rounded),
             ),
     );
@@ -109,7 +116,7 @@ class _MapHeader extends StatelessWidget {
     final colors = theme.colorScheme;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(10, 10, 18, 10),
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       decoration: BoxDecoration(
         color: colors.surface.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(24),
@@ -147,6 +154,11 @@ class _MapHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          IconButton.filledTonal(
+            tooltip: 'Kiểu bản đồ',
+            onPressed: () => showMapStyleSheet(context),
+            icon: const Icon(Icons.layers_outlined),
           ),
         ],
       ),

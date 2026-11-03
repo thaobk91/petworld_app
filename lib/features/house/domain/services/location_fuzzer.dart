@@ -5,8 +5,15 @@ import 'package:petworld_app/core/location/geo_point.dart';
 /// Tạo vị trí công khai cho ngôi nhà: một điểm ngẫu nhiên cách vị trí thật
 /// từ [minMeters] đến [maxMeters].
 class LocationFuzzer {
-  LocationFuzzer({Random? random, this.minMeters = 50, this.maxMeters = 200})
-    : _random = random ?? Random.secure();
+  LocationFuzzer({
+    Random? random,
+    this.minMeters = 50,
+    this.maxMeters = defaultMaxMeters,
+  }) : _random = random ?? Random.secure();
+
+  /// Vị trí thật luôn nằm trong bán kính này quanh vị trí công khai, nên bản
+  /// đồ công khai vẽ vùng gần đúng của ngôi nhà với bán kính này.
+  static const defaultMaxMeters = 200.0;
 
   final double minMeters;
   final double maxMeters;
