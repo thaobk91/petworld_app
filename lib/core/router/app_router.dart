@@ -2,6 +2,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:petworld_app/app/app_gate.dart';
 import 'package:petworld_app/core/router/app_routes.dart';
+import 'package:petworld_app/features/community/presentation/screens/create_group_screen.dart';
+import 'package:petworld_app/features/community/presentation/screens/group_detail_screen.dart';
 import 'package:petworld_app/features/pets/presentation/screens/add_pet_screen.dart';
 import 'package:petworld_app/features/pets/presentation/screens/pet_detail_screen.dart';
 
@@ -22,6 +24,16 @@ final appRouterProvider = Provider<GoRouter>(
         path: AppRoutes.petDetailPattern,
         builder: (context, state) =>
             PetDetailScreen(petId: state.pathParameters['id']!),
+      ),
+      // Phải đứng trước '/community/groups/:id', giống '/pets/add'.
+      GoRoute(
+        path: AppRoutes.createGroup,
+        builder: (context, state) => const CreateGroupScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.groupDetailPattern,
+        builder: (context, state) =>
+            GroupDetailScreen(groupId: state.pathParameters['id']!),
       ),
     ],
   ),

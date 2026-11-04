@@ -6,7 +6,8 @@ Hướng dẫn cho Claude khi làm việc trong dự án này.
 
 - PetWorld: app mobile viết bằng Flutter. Mỗi người dùng đăng ký một ngôi nhà, trong nhà có các thú cưng với hồ sơ và ảnh riêng. Ngôi nhà hiện trên bản đồ công khai.
 - Mục đích: khoe thú cưng, trò chuyện với người xung quanh, chia sẻ kiến thức chăm sóc, tìm thú cưng đi lạc. Xem `memory.md` để biết phần nào đã làm.
-- Bản hiện tại lưu mọi thứ trên máy, chưa có backend. Bản đồ chỉ có nhà của chính mình.
+- Bản hiện tại lưu mọi thứ trên máy, chưa có backend. Bản đồ chỉ có nhà của chính mình, Cộng đồng chỉ có nhóm có sẵn và nhóm, bài của chính mình.
+- Màn hình chính có 3 tab: Bản đồ → Nhà của tôi → Cộng đồng.
 - Luồng vào app (`AppGate`): đăng ký tài khoản (số điện thoại + mật khẩu) → đăng ký nhà → màn hình chính.
 
 ## Công nghệ
@@ -38,7 +39,7 @@ dart format lib test # định dạng code
 ```
 lib/
 ├── main.dart              # khởi tạo SharedPreferences, thư mục documents, ProviderScope
-├── app/                   # PetWorldApp, AppGate (tài khoản → nhà → màn hình chính), HomeShell (2 tab)
+├── app/                   # PetWorldApp, AppGate (tài khoản → nhà → màn hình chính), HomeShell (3 tab)
 ├── core/                  # dùng chung toàn app, không phụ thuộc feature (trừ router)
 │   ├── error/             # Failure, ValidationFailure, LocationFailure
 │   ├── location/          # GeoPoint, LocationFix, LocationService (GPS → Wi-Fi → mạng di động)
@@ -47,12 +48,13 @@ lib/
 │   ├── security/          # PasswordHasher (PBKDF2-HMAC-SHA256)
 │   ├── storage/           # sharedPreferencesProvider, PhotoStorage
 │   ├── theme/
-│   └── utils/             # formatDate, formatAge, foldForSearch (tìm không dấu)
+│   └── utils/             # formatDate, formatAge, formatTimeAgo, foldForSearch (tìm không dấu)
 ├── shared/
 │   ├── map/               # PetMap (bản đồ dùng chung), style 2 kiểu, ảnh ghim nhà, lựa chọn kiểu bản đồ
 │   └── widgets/           # widget dùng ở nhiều tính năng: pickPhoto, WelcomeHero, NoteCard
 └── features/
     ├── account/           # đăng ký tài khoản: số điện thoại theo quốc gia, mật khẩu
+    ├── community/         # Cộng đồng: nhóm (có sẵn, tự tạo), tham gia/rời, bài viết chữ trong nhóm
     ├── house/             # đăng ký nhà, LocationFuzzer, màn hình "Nhà của tôi"
     ├── pets/              # hồ sơ thú cưng, ảnh đại diện, bộ sưu tập ảnh
     └── map/               # bản đồ công khai (chỉ presentation, đọc dữ liệu từ house)
@@ -69,7 +71,7 @@ test/                      # chia thư mục giống lib/
 ## Quy ước kiến trúc
 
 - Chiều phụ thuộc: `presentation → domain ← data`.
-- `domain` là Dart thuần, không import Flutter, Riverpod hay thư viện lưu trữ/HTTP. Được dùng `core/location/geo_point.dart`, `core/error/` và thư viện Dart thuần chỉ tính toán (vd `phone_numbers_parser`).
+- `domain` là Dart thuần, không import Flutter, Riverpod hay thư viện lưu trữ/HTTP. Được dùng `core/location/geo_point.dart`, `core/error/`, hàm Dart thuần trong `core/utils/` (vd `foldForSearch`) và thư viện Dart thuần chỉ tính toán (vd `phone_numbers_parser`).
 - Form có lỗi theo từng ô thì `validator` của ô gọi chính hàm kiểm tra ở domain (vd `PasswordPolicy.validate`), để thông báo lỗi chỉ viết một chỗ. Use case vẫn kiểm tra lại trước khi lưu.
 - `presentation` không import `data`. Repository và use case lấy qua provider trong `di.dart`.
 - Quy tắc nghiệp vụ đặt trong use case. Không đặt trong widget hay DTO.
@@ -90,8 +92,19 @@ test/                      # chia thư mục giống lib/
 - Mỗi loài thú cưng có emoji và màu pastel riêng (`pet_labels.dart`). Thú cưng chưa có ảnh thì hiện emoji trên nền pastel đó.
 - Widget dùng chung: `EmptyState`, `InfoPill`, `WelcomeHero` (đầu trang màn hình chào mừng), `NoteCard` (ô ghi chú có emoji) trong `shared/widgets/`.
 - Ô nhập kiểu filled bo tròn (`UnderlineInputBorder` không viền). Không dùng `OutlineInputBorder`, vì nhãn nổi sẽ rơi ra ngoài ô.
-- Chữ trong `Row` phải bọc `Expanded`/`Flexible` để không tràn khi cỡ chữ hệ thống lớn. Widget test chạy ở 360×800 để bắt lỗi tràn.
-- Có 2 FAB trong cùng route (2 tab của `IndexedStack`), nên FAB của bản đồ đặt `heroTag: null`.
+- Chữ trong `Row` phải bọc `Expanded`/`Flexible` để không tràn khi cỡ chữ hệ thống lớn. Widget test chạy ở 360×800 để bắt lỗi tràn. Trong widget test, sau `ensureVisible` phải `pumpAndSettle` rồi mới `tap`, không thì chạm vào vị trí cũ.
+- Cả 3 tab nằm chung một route (`IndexedStack`) và đều có FAB, nên FAB của tab Bản đồ và tab Cộng đồng đặt `heroTag: null`.
+- Nút mặc định của app (`FilledButton`) rộng hết chiều ngang (`minimumSize` cao 54, rộng vô hạn). Đặt nút trong `Row` thì phải đè `minimumSize` (vd `Size(0, 40)`), như nút "Tham gia" trên thẻ nhóm.
+- Menu "..." mở hộp xác nhận thì dùng `onSelected` của `PopupMenuButton`, không dùng `onTap` của `PopupMenuItem`: `onTap` chạy trước khi menu đóng, lệnh đóng menu sẽ đóng nhầm hộp xác nhận.
+
+## Quy tắc về Cộng đồng
+
+- Bản đầu gồm: nhóm (tạo, tham gia, rời) và bài viết chữ trong nhóm. Chưa có bảng tin chung, ảnh trong bài, thích/bình luận, sửa bài, xoá nhóm, quản trị nhóm.
+- Nhóm chủ đề có sẵn nằm trong code (`CommunityLocalDataSource.builtInGroups`), không lưu vào dữ liệu. Id cố định dạng `builtin-...`: đổi id thì mất bài viết và việc tham gia của nhóm đó.
+- Tạo nhóm (`CreateGroup`): tên 3–50 ký tự, mô tả tối đa 300, không trùng tên nhóm khác (không phân biệt hoa thường và dấu, dùng `foldForSearch`). Người tạo tự tham gia.
+- Đăng bài (`AddGroupPost`): chỉ thành viên, 1–1000 ký tự. Người đăng là ngôi nhà: lưu `author_house_id` và `author_name` (tên nhà lúc đăng).
+- Xoá bài (`DeleteGroupPost`): chỉ người đăng.
+- Khoá lưu trữ: `community_groups`, `community_joined_groups`, `community_posts`.
 
 ## Quy tắc về tài khoản và mật khẩu
 
